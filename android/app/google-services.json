@@ -1,0 +1,68 @@
+{
+  "project_info": {
+    "project_number": "693043234789",
+    "project_id": "login-page-21068",
+    "storage_bucket": "login-page-21068.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:693043234789:android:92419deca97b93432c110c",
+        "android_client_info": {
+          "package_name": "com.example.medremm"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "693043234789-hgcjpsmvpqcr9e4i0i84emlj9ratkj5b.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBFsIJZe_lGF0WF9K2XAdRWop4LaWSbnFA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "693043234789-hgcjpsmvpqcr9e4i0i84emlj9ratkj5b.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:693043234789:android:62d38b05c6a0ada32c110c",
+        "android_client_info": {
+          "package_name": "com.example.trackurpills"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "693043234789-hgcjpsmvpqcr9e4i0i84emlj9ratkj5b.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBFsIJZe_lGF0WF9K2XAdRWop4LaWSbnFA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "693043234789-hgcjpsmvpqcr9e4i0i84emlj9ratkj5b.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
