@@ -1,6 +1,8 @@
+// settings_screen.dart
+import 'package:shared_preferences/shared_preferences.dart'; // <-- ADD THIS IMPORT
 import 'package:flutter/material.dart';
-import '../theme/theme_notifier.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart'; // Import provider
+import '../theme/theme_notifier.dart'; // Ensure correct path to your ThemeNotifier
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -14,10 +16,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool localOnlyMode = true;
   bool pharmacySync = false;
 
-  bool get isDarkMode => themeNotifier.value == ThemeMode.dark;
+  // No need for 'themeNotifier.value' here, we'll use Provider.of
+  // bool get isDarkMode => themeNotifier.value == ThemeMode.dark;
 
   @override
   Widget build(BuildContext context) {
+    // Get the ThemeNotifier instance using Provider.of
+    // listen: true is the default, so the widget rebuilds when theme changes
+    final themeNotifier = Provider.of<ThemeNotifier>(context);
+    final isDarkMode = themeNotifier.currentTheme.brightness == Brightness.dark;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
@@ -60,17 +68,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Text("🌓 Theme",
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
 
-            /// 🟡 FIXED: ValueListenableBuilder must return the widget inside it
-            ValueListenableBuilder<ThemeMode>(
-              valueListenable: themeNotifier,
-              builder: (context, themeMode, _) {
-                return SwitchListTile(
-                  title: const Text("Dark Mode"),
-                  value: themeMode == ThemeMode.dark,
-                  onChanged: (bool value) {
-                    themeNotifier.toggleTheme(value);
-                  },
-                );
+            // Modified Theme Toggle SwitchListTile
+            SwitchListTile(
+              title: const Text("Dark Mode"),
+              value: isDarkMode, // Use the isDarkMode boolean from themeNotifier
+              onChanged: (bool value) {
+                // Call the toggleTheme method on the themeNotifier instance.
+                // The toggleTheme method in ThemeNotifier flips the theme internally
+                // so it doesn't need the 'value' argument.
+                themeNotifier.toggleTheme();
               },
             ),
 

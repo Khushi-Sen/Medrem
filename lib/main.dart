@@ -4,7 +4,10 @@ import 'firebase_options.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
 import 'theme/theme_notifier.dart';
+import 'package:medremm/theme/theme.dart';
+
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/signup_screen.dart';
@@ -18,84 +21,226 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
-// Global instances
-final ThemeNotifier themeNotifier = ThemeNotifier();
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
-final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-    FlutterLocalNotificationsPlugin();
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+
+@pragma('vm:entry-point')
+void notificationTapBackground(NotificationResponse notificationResponse) async {
+  if (notificationResponse.notificationResponseType == NotificationResponseType.selectedNotificationAction) {
+    if (notificationResponse.payload != null) {
+      try {
+        final Map<String, dynamic> payload = jsonDecode(notificationResponse.payload!);
+        final String actionType = notificationResponse.actionId!;
+        final String? medId = payload['medId'];
+        final int? originalNotificationId = payload['originalNotificationId'];
+        final String? medName = payload['medName'];
+        final String? medDose = payload['medDose'];
+
+        if (medId != null) {
+          if (actionType == 'taken_action' && medDose != null) {
+            print("taken clicked");
+            final res = await http.post(
+              Uri.parse('http://10.0.2.2:5000/api/medications/$medId/logDose'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({
+                'status': 'taken',
+                'timestamp': DateTime.now().toIso8601String(),
+                'dose': medDose,
+              }),
+            );
+            if (res.statusCode >= 200 && res.statusCode < 300 && originalNotificationId != null) {
+              await flutterLocalNotificationsPlugin.cancel(originalNotificationId);
+            }
+          } else if (actionType == 'snooze_action') {
+            if (originalNotificationId != null) {
+              await flutterLocalNotificationsPlugin.cancel(originalNotificationId);
+            }
+            final tz.TZDateTime snoozedTime = tz.TZDateTime.now(tz.local).add(const Duration(minutes: 15));
+            await flutterLocalNotificationsPlugin.zonedSchedule(
+              (originalNotificationId ?? DateTime.now().millisecondsSinceEpoch) + 2000000,
+              'Snoozed Reminder: ${medName ?? 'Medication'}',
+              'Your dose of ${medName ?? 'medication'} is due. Take it now!',
+              snoozedTime,
+              const NotificationDetails(
+                android: AndroidNotificationDetails(
+                  'med_reminder_channel_snooze',
+                  'Medication Snooze',
+                  channelDescription: 'Temporary snooze reminders for medications',
+                  importance: Importance.max,
+                  priority: Priority.high,
+                  playSound: true,
+                  //icon: "ic_notification"
+                ),
+              ),
+              androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+              payload: jsonEncode({
+                'medId': medId,
+                'notificationType': 'snooze_temp',
+                'medName': medName,
+                'medDose': medDose,
+              }),
+            );
+          }
+        }
+      } catch (_) {}
+    }
+  }
+}
+
+//  @pragma('vm:entry-point')
+// void notificationTapaction(NotificationResponse notificationResponse) async {
+//   tz.initializeTimeZones();
+//   tz.setLocalLocation(tz.getLocation('Asia/Kolkata'));
+
+//   print("Action clicked: ${notificationResponse.actionId}");
+//   print("Payload: ${notificationResponse.payload}");
+
+//   if (notificationResponse.actionId == "id_snooze") {
+//     print("Snooze clicked: schedule after 5 min");
+
+//     // Cancel current scheduled notifications (if any)
+//     await flutterLocalNotificationsPlugin.cancelAll();
+
+//     // Schedule snoozed notification after 5 min
+//     await flutterLocalNotificationsPlugin.zonedSchedule(
+//       1,
+//       "Snoozed Notification",
+//       "Reminder after snooze",
+//       tz.TZDateTime.now(tz.local).add(const Duration(minutes: 5)),
+//       const NotificationDetails(
+//         android: AndroidNotificationDetails(
+//           'snooze_channel_id',
+//           'Snooze Notifications',
+//           channelDescription: 'Notifications after snooze',
+//           importance: Importance.max,
+//           priority: Priority.high,
+//           //icon: 'ic_notification',
+//           actions: [
+//             AndroidNotificationAction("id_snooze", "Snooze again"),
+//           ],
+//         ),
+//       ),
+//       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,    );
+//     // After snooze, start the repeating reminder
+//     await flutterLocalNotificationsPlugin.periodicallyShowWithDuration(
+//       2,
+//       "Auto Reminder",
+//       "You haven’t acted on this!",
+//       Duration(minutes: 15),
+//       const NotificationDetails(
+//         android: AndroidNotificationDetails(
+//           'reminder_channel_id',
+//           'Auto Reminder Notifications',
+//           channelDescription: 'Reminds if no action taken',
+//           importance: Importance.max,
+//           priority: Priority.high,
+//           //icon: 'ic_notification',
+//           actions: [
+//             AndroidNotificationAction("id_snooze", "Snooze again"),
+//           ],
+//         ),
+//       ),
+//     );
+
+//   } else {
+//     // Handle other actions or main tap
+//     print("Notification was tapped or another action clicked");
+//     // Cancel reminders since user acted
+//     await flutterLocalNotificationsPlugin.cancelAll();
+//   }
+// }
+
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   tz.initializeTimeZones();
+  tz.setLocalLocation(tz.getLocation('Asia/Kolkata'));
 
-  const AndroidInitializationSettings androidInit =
-      AndroidInitializationSettings('@mipmap/ic_launcher');
-
-  const DarwinInitializationSettings iOSInit = DarwinInitializationSettings();
-
-  final InitializationSettings initSettings = InitializationSettings(
-    android: androidInit,
-    iOS: iOSInit,
-  );
+  const AndroidInitializationSettings androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+  final InitializationSettings initSettings = InitializationSettings(android: androidInit);
 
   await flutterLocalNotificationsPlugin.initialize(
     initSettings,
     onDidReceiveNotificationResponse: (NotificationResponse response) async {
-      final String? medName = response.payload;
+      print("notification tapped");
+      print("Action id:${response.actionId}");
+      notificationTapBackground(response);
+      
+      if (response.notificationResponseType == NotificationResponseType.selectedNotificationAction) {
+        if (response.payload != null) {
+          try {
+            final Map<String, dynamic> payload = jsonDecode(response.payload!);
+            final String actionType = response.actionId!;
+            final String? medId = payload['medId'];
+            final int? originalNotificationId = payload['originalNotificationId'] ?? payload['id'];
+            final String? medName = payload['medName'];
+            final String? medDose = payload['medDose'];
 
-      if (medName != null &&
-          (response.actionId == 'taken_action' || response.actionId == 'snooze_action')) {
-        final status = response.actionId == 'taken_action' ? 'taken' : 'missed';
-
-        final res = await http.post(
-          Uri.parse('http://10.0.2.2:5000/api/medications/dose-history'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'userId': 'abc123',
-            'medication': medName,
-            'status': status,
-            'timestamp': DateTime.now().toIso8601String(),
-          }),
-        );
-
-        print("📤 Dose history response: ${res.statusCode} - ${res.body}");
+            if (medId != null) {
+              if (actionType == 'taken_action' && medDose != null) {
+                final res = await http.post(
+                  Uri.parse('http://10.0.2.2:5000/api/medications/$medId/logDose'),
+                  headers: {'Content-Type': 'application/json'},
+                  body: jsonEncode({
+                    'status': 'taken',
+                    'timestamp': DateTime.now().toIso8601String(),
+                    'dose': medDose,
+                  }),
+                );
+                if (res.statusCode >= 200 && res.statusCode < 300 && originalNotificationId != null) {
+                  await flutterLocalNotificationsPlugin.cancel(originalNotificationId);
+                }
+              } else if (actionType == 'snooze_action') {
+                if (originalNotificationId != null) {
+                  await flutterLocalNotificationsPlugin.cancel(originalNotificationId);
+                }
+                final tz.TZDateTime snoozedTime = tz.TZDateTime.now(tz.local).add(const Duration(minutes: 15));
+                await flutterLocalNotificationsPlugin.zonedSchedule(
+                  (originalNotificationId ?? DateTime.now().millisecondsSinceEpoch) + 2000000,
+                  'Snoozed Reminder: ${medName ?? 'Medication'}',
+                  'Your dose of ${medName ?? 'medication'} is due. Take it now!',
+                  snoozedTime,
+                  const NotificationDetails(
+                    android: AndroidNotificationDetails(
+                      'med_reminder_channel_snooze',
+                      'Medication Snooze',
+                      channelDescription: 'Temporary snooze reminders for medications',
+                      importance: Importance.max,
+                      priority: Priority.high,
+                      playSound: true,
+                    ),
+                  ),
+                  androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+                  payload: jsonEncode({
+                    'medId': medId,
+                    'notificationType': 'snooze_temp',
+                    'medName': medName,
+                    'medDose': medDose,
+                  }),
+                );
+              }
+            }
+          } catch (_) {}
+        }
       }
-
-      if (response.actionId == 'snooze_action') {
-        print("⏰ Snoozing for 10 mins...");
-        final now = DateTime.now().add(const Duration(minutes: 10));
-        await flutterLocalNotificationsPlugin.zonedSchedule(
-          DateTime.now().millisecondsSinceEpoch ~/ 1000,
-          'Snoozed Reminder',
-          'Take your medication now.',
-          tz.TZDateTime.from(now, tz.local),
-          const NotificationDetails(
-            android: AndroidNotificationDetails(
-              'med_reminder_channel',
-              'Medication Reminders',
-              channelDescription: 'Channel for daily medication reminders',
-              importance: Importance.max,
-              priority: Priority.high,
-              playSound: true,
-            ),
-          ),
-          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-          matchDateTimeComponents: DateTimeComponents.time,
-          payload: medName,
-        );
-      }
-    },
+    }
   );
+
 
   final prefs = await SharedPreferences.getInstance();
   final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
 
-  runApp(MedicationAdherenceApp(isLoggedIn: isLoggedIn));
+  final themeNotifier = ThemeNotifier(appLightTheme);
+  await themeNotifier.loadTheme();
+
+  runApp(
+    ChangeNotifierProvider(
+      create: (_) => themeNotifier,
+      child: MedicationAdherenceApp(isLoggedIn: isLoggedIn),
+    ),
+  );
 }
 
 class MedicationAdherenceApp extends StatelessWidget {
@@ -104,67 +249,25 @@ class MedicationAdherenceApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: themeNotifier,
-      builder: (context, themeMode, _) {
-        return MaterialApp(
-          navigatorKey: navigatorKey,
-          title: 'TrackUrPills',
-          debugShowCheckedModeBanner: false,
-          themeMode: themeMode,
-          theme: ThemeData(
-            brightness: Brightness.light,
-            useMaterial3: true,
-            colorScheme: ColorScheme.fromSeed(seedColor: Colors.brown),
-            scaffoldBackgroundColor: const Color(0xFFF8F3EF),
-            appBarTheme: const AppBarTheme(
-              backgroundColor: Color(0xFFD7CCC8),
-              iconTheme: IconThemeData(color: Colors.brown),
-              titleTextStyle: TextStyle(
-                color: Colors.brown,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            elevatedButtonTheme: ElevatedButtonThemeData(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.brown,
-                foregroundColor: Colors.white,
-              ),
-            ),
-          ),
-          darkTheme: ThemeData(
-            brightness: Brightness.dark,
-            useMaterial3: true,
-            colorScheme: ColorScheme.dark(
-              primary: Colors.brown[300]!,
-              secondary: Colors.brown,
-            ),
-            scaffoldBackgroundColor: Colors.black,
-            appBarTheme: const AppBarTheme(
-              backgroundColor: Colors.black12,
-              titleTextStyle: TextStyle(color: Colors.white, fontSize: 20),
-            ),
-            elevatedButtonTheme: ElevatedButtonThemeData(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.brown,
-                foregroundColor: Colors.white,
-              ),
-            ),
-          ),
-          initialRoute: isLoggedIn ? '/dashboard' : '/login',
-          routes: {
-            '/': (context) => HomeScreen(),
-            '/login': (context) => LoginScreen(),
-            '/signup': (context) => SignUpScreen(),
-            '/dashboard': (context) => DashboardScreen(),
-            '/add': (context) => AddMedicationScreen(),
-            '/history': (context) => DoseHistoryScreen(),
-            '/refill': (context) => RefillScreen(),
-            '/settings': (context) => SettingsScreen(),
-            '/edit': (context) => EditMedicationScreen(),
-          },
-        );
+    final themeNotifier = Provider.of<ThemeNotifier>(context);
+    return MaterialApp(
+      navigatorKey: navigatorKey,
+      title: 'TrackUrPills',
+      debugShowCheckedModeBanner: false,
+      themeMode: themeNotifier.currentTheme.brightness == Brightness.dark ? ThemeMode.dark : ThemeMode.light,
+      theme: appLightTheme,
+      darkTheme: appDarkTheme,
+      initialRoute: isLoggedIn ? '/dashboard' : '/login',
+      routes: {
+        '/': (_) => HomeScreen(),
+        '/login': (_) => LoginScreen(),
+        '/signup': (_) => SignUpScreen(),
+        '/dashboard': (_) => DashboardScreen(),
+        '/add': (_) => AddMedicationScreen(flutterLocalNotificationsPlugin: flutterLocalNotificationsPlugin),
+        '/history': (_) => DoseHistoryScreen(),
+        '/refill': (_) => RefillScreen(),
+        '/settings': (_) => SettingsScreen(),
+        '/edit': (_) => EditMedicationScreen(flutterLocalNotificationsPlugin: flutterLocalNotificationsPlugin),
       },
     );
   }

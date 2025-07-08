@@ -1,18 +1,25 @@
-// Line 1
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
-
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/timezone.dart' as tz;
-import 'package:flutter/services.dart'; // ✅ Line ~11
-import 'package:medremm/main.dart'; // ✅ for notifications + navigatorKey
+import 'package:timezone/data/latest_all.dart' as tz_data;
+import 'package:medremm/main.dart'; // Assuming your navigatorKey & notification handlers are there
+
+const List<String> _availableDoseTimes = ['Morning', 'Afternoon', 'Evening'];
+const List<String> _mealRelations = ['Before Meal', 'After Meal', 'Anytime', 'With Food'];
+
+final Map<String, TimeOfDay> _doseTimeSlots = {
+  'Morning': TimeOfDay(hour: 7, minute: 0),
+  'Afternoon': TimeOfDay(hour: 12, minute: 10),
+  'Evening': TimeOfDay(hour: 19, minute: 30),
+};
 
 class AddMedicationScreen extends StatefulWidget {
-  const AddMedicationScreen({super.key});
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin;
+
+  const AddMedicationScreen({Key? key, required this.flutterLocalNotificationsPlugin}) : super(key: key);
 
   @override
   State<AddMedicationScreen> createState() => _AddMedicationScreenState();
@@ -20,121 +27,232 @@ class AddMedicationScreen extends StatefulWidget {
 
 class _AddMedicationScreenState extends State<AddMedicationScreen> {
   final _formKey = GlobalKey<FormState>();
-  final nameController = TextEditingController();
-  final doseController = TextEditingController();
-  final freqController = TextEditingController();
-  TimeOfDay? selectedTime;
-  String nextDose = '';
+  final _nameController = TextEditingController();
+  final _doseController = TextEditingController();
+  final _totalTabsController = TextEditingController();
+  final List<String> _selectedDoseTimes = [];
+  String _selectedMealRelation = _mealRelations.first;
 
-  void _showTimePicker(
-    BuildContext context,
-    Function(TimeOfDay, String) onTimeSelected,
-  ) async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: const TimeOfDay(hour: 8, minute: 0),
-    );
+  @override
+  void initState() {
+    super.initState();
+    tz_data.initializeTimeZones();
+    tz.setLocalLocation(tz.getLocation('Asia/Kolkata')); 
+  }
 
-    if (picked != null) {
-      final now = DateTime.now();
-      final selectedDateTime = DateTime(
-        now.year,
-        now.month,
-        now.day,
-        picked.hour,
-        picked.minute,
-      );
-      final nextDose =
-          DateFormat.jm().format(selectedDateTime.add(const Duration(hours: 12)));
-      onTimeSelected(picked, nextDose);
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _doseController.dispose();
+    _totalTabsController.dispose();
+    super.dispose();
+  }
+
+
+// Future<void> _scheduleNotificationsForMedication1(Map<String, dynamic> medData) async {
+//   final String medName = medData['name'];
+//   final String medId = medData['_id'];
+//   final String mealRelation = medData['mealRelation'];
+//   final String medDose = medData['dose'];
+//   final List<String> doseTimes = List<String>.from(medData['doseTimes']);
+
+//   // --- IMPROVEMENT 1: Handle doseTimes safely and format for display ---
+//   // Using the first dose time for startTime, or provide a default
+//   final String doseTimeStr = doseTimes.isNotEmpty ? doseTimes[0] : "N/A";
+
+//   // IMPORTANT: Ensure _doseTimeSlots is accessible and populated
+//   // If this notification is for an immediate display (e.g., "Medication Added"),
+//   // startTime might not be used for scheduling this 'show' notification.
+//   // If you intend to schedule for a future time, you'd use flutterLocalNotificationsPlugin.zonedSchedule
+//   // and resolve the TimeOfDay into a specific TZDateTime.
+//   // final TimeOfDay? startTime = _doseTimeSlots[doseTimeStr]; // startTime can be null if key not found
+
+
+//   // --- IMPROVEMENT 2: Better notification body formatting ---
+//   final String notificationBody = "Dose: $medDose, Meal: $mealRelation. Times: ${doseTimes.join(', ')}";
+
+//   final int baseId = '${medId}_1'.hashCode.abs() % 2147483647;
+
+//   await flutterLocalNotificationsPlugin.show(
+//     baseId,
+//     "$medName",
+//     notificationBody, // Using the formatted body
+//     const NotificationDetails(
+//       android: AndroidNotificationDetails(
+//         'channel_id',
+//         'channel_name',
+//         channelDescription: 'channel_description',
+//         importance: Importance.max,
+//         priority: Priority.high,
+//         // --- CHANGE: REMOVED ICON PROPERTY ---
+//         // icon: 'ic_notification', // <--- REMOVED THIS LINE
+//         actions: [
+//           AndroidNotificationAction("id_taken", "Taken", showsUserInterface: true),
+//           AndroidNotificationAction("id_snooze", "snooze", showsUserInterface: true),
+//         ],
+//       ),
+//     ),
+//     payload: jsonEncode({
+//       'medId': medId,
+//       'notificationType': 'medication_reminder',
+//       'doseTimes': doseTimes,
+//       'mealRelation': mealRelation,
+//       'medName': medName,
+//       'medDose': medDose,
+//     }),
+//   );
+// }
+
+
+
+
+
+
+  Future<void> _scheduleNotificationsForMedication(Map<String, dynamic> medData) async {
+    final String medName = medData['name'];
+    final String medId = medData['_id'];
+    final String mealRelation = medData['mealRelation'];
+    final String medDose = medData['dose'];
+    final List<String> doseTimes = List<String>.from(medData['doseTimes']);
+
+    for (int i = 0; i < doseTimes.length; i++) {
+      final String doseTime = doseTimes[i];
+      final TimeOfDay startTime = _doseTimeSlots[doseTime]!;
+      final int baseId = '${medId}_$i'.hashCode.abs() % 2147483647;
+
+      await _scheduleRepeatingReminder(baseId, medId, medName, mealRelation, medDose, startTime);
+      await _scheduleMissedDoseCheck(baseId + 100000, medId, medName, mealRelation, medDose, startTime);
     }
   }
 
-  Future<bool> _requestExactAlarmPermission() async {
-    if (!Platform.isAndroid) return true;
+  Future<void> _scheduleRepeatingReminder(
+  int id,
+  String medId,
+  String medName,
+  String mealRelation,
+  String medDose,
+  TimeOfDay startTime
+) async {
+  print("Called schedule repeat reminder");
+  final now = tz.TZDateTime.now(tz.local);
+  tz.TZDateTime scheduledTime = tz.TZDateTime(
+    tz.local,
+    now.year,
+    now.month,
+    now.day,
+    startTime.hour,
+    startTime.minute,
+  );
+  if (scheduledTime.isBefore(now)) {
+    scheduledTime = scheduledTime.add(const Duration(days: 1));
+  }
 
-    const MethodChannel platform = MethodChannel('alarm_permission');
+  final payload = jsonEncode({
+    'medId': medId,
+    'originalNotificationId': id,
+    'notificationType': 'repeating_reminder',
+    'medName': medName,
+    'mealRelation': mealRelation,
+    'medDose': medDose,
+  });
 
-    try {
-      final bool granted = await platform.invokeMethod('checkExactAlarmPermission');
-      if (!granted) {
-        await platform.invokeMethod('requestExactAlarmPermission');
-        return false;
-      }
-      return true;
-    } on PlatformException catch (e) {
-      debugPrint("Permission error: $e");
-      return false;
+  await widget.flutterLocalNotificationsPlugin.zonedSchedule(
+    id,
+    'Time for your medication!',
+    'Take $medDose of $medName ($mealRelation)',
+    scheduledTime,
+    NotificationDetails(
+      android: AndroidNotificationDetails(
+        'med_reminder_channel_repeating',
+        'Medication Reminders',
+        channelDescription: 'Daily medication reminders',
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        ticker: 'ticker',
+        //icon: "ic_notification",
+        actions: [
+          AndroidNotificationAction('taken_action', 'Taken', showsUserInterface: true),
+          AndroidNotificationAction('snooze_action', 'Snooze (15 min)', showsUserInterface: true),
+        ],
+      ),
+    ),
+    androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+    
+    matchDateTimeComponents: DateTimeComponents.time,  // daily at the same time
+    payload: payload,
+  );
+  
+}
+
+  Future<void> _scheduleMissedDoseCheck(int id, String medId, String medName, String mealRelation, String medDose, TimeOfDay startTime) async {
+    final now = tz.TZDateTime.now(tz.local);
+    tz.TZDateTime checkTime = tz.TZDateTime(tz.local, now.year, now.month, now.day, startTime.hour, startTime.minute)
+        .add(const Duration(hours: 2));
+    if (checkTime.isBefore(now)) {
+      checkTime = checkTime.add(const Duration(days: 1));
     }
+
+    await widget.flutterLocalNotificationsPlugin.zonedSchedule(
+      id,
+      'Missed Dose Alert!',
+      'It looks like you missed your dose of $medName ($mealRelation).',
+      checkTime,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'missed_dose_channel',
+          'Missed Dose Alerts',
+          channelDescription: 'Alerts for when a medication dose is missed.',
+          importance: Importance.defaultImportance,
+          priority: Priority.defaultPriority,
+          //icon: "ic_notification"
+        ),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      payload: jsonEncode({
+        'medId': medId,
+        'notificationType': 'missed_check',
+        'medName': medName,
+        'medDose': medDose,
+      }),
+    );
   }
 
-  Future<void> _scheduleNotification(String medName, TimeOfDay selectedTime) async {
-    final now = DateTime.now();
-    final scheduledDate = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      selectedTime.hour,
-      selectedTime.minute,
-    );
+  Future<void> _submitForm() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    final tz.TZDateTime tzTime = tz.TZDateTime.from(scheduledDate, tz.local)
-            .isBefore(tz.TZDateTime.now(tz.local))
-        ? tz.TZDateTime.from(scheduledDate, tz.local).add(const Duration(days: 1))
-        : tz.TZDateTime.from(scheduledDate, tz.local);
-
-    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      'med_reminder_channel',
-      'Medication Reminders',
-      importance: Importance.max,
-      priority: Priority.high,
-      playSound: true,
-      actions: <AndroidNotificationAction>[
-        AndroidNotificationAction(
-          'taken_action', 'Taken',
-          showsUserInterface: true,
-          cancelNotification: true,
-        ),
-        AndroidNotificationAction(
-          'snooze_action', 'Snooze',
-          showsUserInterface: true,
-          cancelNotification: true,
-        ),
-      ],
-    );
-await flutterLocalNotificationsPlugin.zonedSchedule(
-  DateTime.now().millisecondsSinceEpoch ~/ 1000,
-
-  'Medication Reminder',
-  'Take your medication: $medName 💊',
-  tzTime,
-  NotificationDetails(android: androidDetails),
-  androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-  matchDateTimeComponents: DateTimeComponents.time,
-  payload: medName, 
-);
-
-  }
-
-  void _saveMedication({
-    required BuildContext context,
-    required String name,
-    required String dose,
-    required String frequency,
-    required TimeOfDay? selectedTime,
-  }) async {
-    if (name.isEmpty || dose.isEmpty || frequency.isEmpty || selectedTime == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please complete all fields')),
-      );
+    if (_selectedDoseTimes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Please select at least one dose time.'),
+        backgroundColor: Colors.redAccent,
+      ));
       return;
     }
 
-    final Map<String, dynamic> medData = {
-      "userId": "abc123",
-      "name": name.trim(),
-      "dose": dose.trim(),
-      "time": selectedTime.format(context),
+      // Retrieve userId from SharedPreferences
+  final prefs = await SharedPreferences.getInstance();
+  final userId = prefs.getString('userId'); // No default here, assume user is logged in
+
+  if (userId == null) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('User not logged in. Please log in again.'),
+        backgroundColor: Colors.redAccent,
+      ));
+      // Optionally, navigate back to login screen
+      // Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (context) => const LoginScreen()));
+    }
+    return;
+  }
+
+    final medData = {
+      "userId": userId,
+      "name": _nameController.text.trim(),
+      "dose": _doseController.text,
+      "doseTimes": _selectedDoseTimes,
+      "mealRelation": _selectedMealRelation,
+      "totalTabs": int.tryParse(_totalTabsController.text) ?? 0,
+      "currentTabs": int.tryParse(_totalTabsController.text) ?? 0,
       "startDate": DateTime.now().toIso8601String(),
       "endDate": DateTime.now().add(const Duration(days: 30)).toIso8601String(),
       "takenHistory": [],
@@ -147,23 +265,20 @@ await flutterLocalNotificationsPlugin.zonedSchedule(
         body: jsonEncode(medData),
       );
 
-      if (response.statusCode == 200) {
-        bool permissionGranted = true;
-
-        if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
-          permissionGranted = await _requestExactAlarmPermission();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final savedMedData = jsonDecode(response.body)['medication'];
+        if (savedMedData['_id'] != null) {
+          print("calling schedule notification");
+          await _scheduleNotificationsForMedication(savedMedData);
         }
 
-        if (permissionGranted) {
-          await _scheduleNotification(name, selectedTime);
-        }
-
+        if (!mounted) return;
         showDialog(
           context: context,
           barrierDismissible: false,
-          builder: (context) => AlertDialog(
+          builder: (_) => AlertDialog(
             title: const Text('Success'),
-            content: const Text('Medication saved & reminder scheduled!'),
+            content: const Text('Medication saved & reminders scheduled!'),
             actions: [
               TextButton(
                 onPressed: () {
@@ -177,114 +292,108 @@ await flutterLocalNotificationsPlugin.zonedSchedule(
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed: ${response.body}')),
+          SnackBar(content: Text('Failed to save: ${response.body}')),
         );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error saving medication: $e')),
+        SnackBar(content: Text('An error occurred: $e')),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final _formKey = GlobalKey<FormState>();
-    final nameController = TextEditingController();
-    final doseController = TextEditingController();
-    final freqController = TextEditingController();
-    TimeOfDay? selectedTime;
-    String nextDose = '';
+    final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-
       appBar: AppBar(
-        backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
-        title: Text('Add Medication', style: Theme.of(context).textTheme.titleLarge),
-        iconTheme: Theme.of(context).appBarTheme.iconTheme ?? const IconThemeData(),
-
+        title: const Text('Add New Medication'),
       ),
-      body: StatefulBuilder(
-        builder: (context, setLocalState) {
-          return Padding(
-            padding: const EdgeInsets.all(20),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                children: [
-                  TextFormField(
-                    controller: nameController,
-                    decoration: const InputDecoration(labelText: 'Medication Name'),
-                    validator: (value) => value!.isEmpty ? 'Please enter a name' : null,
-                  ),
-                  TextFormField(
-                    controller: doseController,
-                    decoration: const InputDecoration(labelText: 'Dose (e.g., 500mg)'),
-                    validator: (value) => value!.isEmpty ? 'Please enter a dose' : null,
-                  ),
-                  TextFormField(
-                    controller: freqController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Frequency (times/day)'),
-                    validator: (value) => value!.isEmpty ? 'Please enter frequency' : null,
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    children: [
-                      const Text('Select Start Time: '),
-                      TextButton(
-                        onPressed: () {
-                          _showTimePicker(context, (time, doseTime) {
-                            setLocalState(() {
-                              selectedTime = time;
-                              nextDose = doseTime;
-                            });
-                          });
-                        },
-                        child: Text(
-                          selectedTime != null
-                              ? selectedTime!.format(context)
-                              : 'Pick Time',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (nextDose.isNotEmpty)
-                    Text(
-                      'Next Dose: $nextDose',
-                      style: Theme.of(context).textTheme.bodyMedium,
-
-                    ),
-                  const SizedBox(height: 30),
-                  ElevatedButton(
-                   style: ElevatedButton.styleFrom(
-                      backgroundColor: Theme.of(context).colorScheme.primary,
-                      foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                      padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
-                    ),
-
-                    onPressed: () {
-                      if (_formKey.currentState!.validate()) {
-                        _saveMedication(
-                          context: context,
-                          name: nameController.text,
-                          dose: doseController.text,
-                          frequency: freqController.text,
-                          selectedTime: selectedTime,
-                        );
-                      }
-                    },
-                    child: const Text('Save'),
-
-                  ),
-                ],
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            children: [
+              _buildTextField(_nameController, 'Medicine Name', Icons.medical_services_outlined, 'Please enter the medicine name'),
+              const SizedBox(height: 16),
+              _buildTextField(_doseController, 'Dose (e.g., "10mg")', Icons.fitness_center, 'Please enter the dose'),
+              const SizedBox(height: 16),
+              _buildTextField(_totalTabsController, 'Number of Medicines Available', Icons.medication_liquid_outlined,
+                  'Please enter the number of medicines',
+                  isNumber: true),
+              const SizedBox(height: 24),
+              _buildDoseTimeChips(theme),
+              const SizedBox(height: 24),
+              _buildMealRelationRadios(theme),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton.icon(
+                  onPressed: _submitForm,
+                  icon: const Icon(Icons.save_alt_outlined),
+                  label: const Text('Save Medication', style: TextStyle(fontSize: 18)),
+                ),
               ),
-            ),
-          );
-        },
+            ],
+          ),
+        ),
       ),
+    );
+  }
+
+  Widget _buildTextField(TextEditingController controller, String label, IconData icon, String errorMsg, {bool isNumber = false}) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+        prefixIcon: Icon(icon),
+      ),
+      validator: (value) {
+        if (value == null || value.isEmpty) return errorMsg;
+        if (isNumber && (int.tryParse(value) ?? 0) <= 0) return 'Please enter a number greater than 0';
+        return null;
+      },
+    );
+  }
+
+  Widget _buildDoseTimeChips(ThemeData theme) {
+    return Wrap(
+      spacing: 8,
+      children: _availableDoseTimes.map((time) {
+        final selected = _selectedDoseTimes.contains(time);
+        return FilterChip(
+          label: Text(time),
+          selected: selected,
+          onSelected: (val) {
+            setState(() {
+              val ? _selectedDoseTimes.add(time) : _selectedDoseTimes.remove(time);
+            });
+          },
+          selectedColor: theme.primaryColor.withOpacity(0.2),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildMealRelationRadios(ThemeData theme) {
+    return Column(
+      children: _mealRelations.map((relation) {
+        return RadioListTile<String>(
+          title: Text(relation),
+          value: relation,
+          groupValue: _selectedMealRelation,
+          onChanged: (val) {
+            if (val != null) {
+              setState(() => _selectedMealRelation = val);
+            }
+          },
+        );
+      }).toList(),
     );
   }
 }

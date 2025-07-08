@@ -3,6 +3,8 @@ import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 class DoseHistoryScreen extends StatefulWidget {
   const DoseHistoryScreen({super.key});
 
@@ -22,8 +24,25 @@ void initState() {
 }
 
 Future<void> _fetchDoseHistory() async {
+
+      // Retrieve userId from SharedPreferences
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('userId'); // No default here, assume user is logged in
+
+    if (userId == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('User not logged in. Please log in again.'),
+          backgroundColor: Colors.redAccent,
+        ));
+        // Optionally, navigate back to login screen
+        // Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (context) => const LoginScreen()));
+      }
+      return;
+    }
+
   final response = await http.get(Uri.parse(
-      'http://10.0.2.2:5000/api/medications/dose-history?userId=abc123'));
+      'http://10.0.2.2:5000/api/medications/dose-history?userId=$userId'));
 
   if (response.statusCode == 200) {
     setState(() {
@@ -36,8 +55,23 @@ Future<void> _fetchDoseHistory() async {
 
 
   Future<void> _clearDoseHistory() async {
+      // Retrieve userId from SharedPreferences
+  final prefs = await SharedPreferences.getInstance();
+  final userId = prefs.getString('userId'); // No default here, assume user is logged in
+
+  if (userId == null) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('User not logged in. Please log in again.'),
+        backgroundColor: Colors.redAccent,
+      ));
+      // Optionally, navigate back to login screen
+      // Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (context) => const LoginScreen()));
+    }
+    return;
+  }
     final response = await http.delete(Uri.parse(
-        'http://10.0.2.2:5000/api/medications/clear-dose-history?userId=abc123'));
+        'http://10.0.2.2:5000/api/medications/clear-dose-history?userId=$userId'));
     if (response.statusCode == 200) {
       setState(() {
         _doseHistory.clear();
@@ -165,8 +199,23 @@ return Card(
           IconButton(
             icon: const Icon(Icons.delete),
             onPressed: () async {
+                                            // Retrieve userId from SharedPreferences
+                              final prefs = await SharedPreferences.getInstance();
+                              final userId = prefs.getString('userId'); // No default here, assume user is logged in
+
+                              if (userId == null) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                                    content: Text('User not logged in. Please log in again.'),
+                                    backgroundColor: Colors.redAccent,
+                                  ));
+                                  // Optionally, navigate back to login screen
+                                  // Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (context) => const LoginScreen()));
+                                }
+                                return;
+                              }
               final response = await http.delete(
-                Uri.parse('http://10.0.2.2:5000/api/medications/clear-dose-history?userId=abc123'),
+                Uri.parse('http://10.0.2.2:5000/api/medications/clear-dose-history?userId=$userId'),
               );
               if (response.statusCode == 200) {
                 setState(() {

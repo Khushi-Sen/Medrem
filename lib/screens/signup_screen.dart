@@ -1,6 +1,7 @@
 // lib/screens/signup_screen.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -25,15 +26,32 @@ class _SignUpScreenState extends State<SignUpScreen> {
     }
 
     try {
-      await FirebaseAuth.instance.createUserWithEmailAndPassword(
+      UserCredential userCredential=await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
-      Navigator.pushReplacementNamed(context, '/dashboard');
+       User? user = userCredential.user;
+    if (user != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('userId', user.uid); // <--- SAVE THE FIREBASE UID HERE
+      print('User signed up. UID saved: ${user.uid}'); // For debugging
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Registration successful!')),
+        );
+        // Navigate to Dashboard or Home screen after successful signup
+        Navigator.pushReplacementNamed(context, '/dashboard');
+      }
+    }
+
+
+      
     } on FirebaseAuthException catch (e) {
       setState(() => _error = e.message ?? 'Sign up failed');
     }
   }
+  
 
   @override
   Widget build(BuildContext context) {

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Dose = require('../models/dose');
-const Medication = require('../models/medication');
+const Medication = require('../models/Medication');
 
 router.post('/update', async (req, res) => {
   const { userId, medicationId, date, status } = req.body;

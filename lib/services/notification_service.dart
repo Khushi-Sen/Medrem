@@ -54,8 +54,7 @@ class NotificationService {
             sound: RawResourceAndroidNotificationSound('alarm'), // alarm.mp3 in /android/app/src/main/res/raw
           ),
         ),
-        androidAllowWhileIdle: true,
-        matchDateTimeComponents: DateTimeComponents.time, // Daily at specific time
+        matchDateTimeComponents: DateTimeComponents.time, androidScheduleMode:AndroidScheduleMode.exactAllowWhileIdle, // Daily at specific time
       );
     } catch (e) {
       print("❌ Notification scheduling failed: $e");
